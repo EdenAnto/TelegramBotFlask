@@ -89,7 +89,7 @@ def webhook():
         # print("Incoming update:", json_str)  # Log the incoming update
 
         update = Update.de_json(json.loads(json_str), application.bot)
-        return update
+        #return update
 
 
         # Process the update using the persistent event loop
