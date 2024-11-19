@@ -94,6 +94,10 @@ def webhook():
     except Exception as e:
         print("Error processing update:", str(e))
         return 'Internal Server Error', 500
+        
+@app.route('/', methods=['GET'])
+def home():
+    return redirect("https://en-wedding.vercel.app", code=302)
 
 # Set the webhook URL
 async def set_webhook():
