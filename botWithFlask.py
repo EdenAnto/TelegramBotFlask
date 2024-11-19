@@ -7,13 +7,10 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
 import asyncio
+# from dotenv import load_dotenv
 
-import logging
-
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
+# Load environment variables
+# load_dotenv()
 
 # Flask app initialization
 app = Flask(__name__)
@@ -41,7 +38,7 @@ async def upload_to_azure(file_url, file_name):
     file_data = requests.get(file_url).content
     blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
     blob_client.upload_blob(file_data)
-    # print(f"Uploaded {file_name} to Azure Blob Storage!")
+    print(f"Uploaded {file_name} to Azure Blob Storage!")
 
 # Start command to welcome the user
 async def start(update: Update, context: CallbackContext):
@@ -86,11 +83,9 @@ async def handle_media(update: Update, context: CallbackContext):
 def webhook():
     try:
         json_str = request.get_data().decode('utf-8')
-        # print("Incoming update:", json_str)  # Log the incoming update
+        print("Incoming update:", json_str)  # Log the incoming update
 
         update = Update.de_json(json.loads(json_str), application.bot)
-        #return update
-
 
         # Process the update using the persistent event loop
         event_loop.run_until_complete(application.process_update(update))
@@ -99,17 +94,12 @@ def webhook():
     except Exception as e:
         print("Error processing update:", str(e))
         return 'Internal Server Error', 500
-        
-@app.route('/', methods=['GET'])
-def home():
-    logging.info("Home route accessed.")
-    return "Hello World!"
 
 # Set the webhook URL
 async def set_webhook():
     webhook_url = "https://weddingtelegrambot.azurewebsites.net/webhook"
     await application.bot.set_webhook(webhook_url)
-    # print(f"Webhook successfully set to: {webhook_url}")
+    print(f"Webhook successfully set to: {webhook_url}")
 
 # Main function
 def main():
@@ -124,7 +114,7 @@ def main():
     event_loop.run_until_complete(set_webhook())
 
     # Run the Flask app
-app.run(host='0.0.0.0', port=8000)
+    # app.run(host='0.0.0.0', port=8080)
 
 if __name__ == '__main__':
     main()
