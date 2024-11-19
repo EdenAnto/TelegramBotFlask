@@ -7,10 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
 import asyncio
-# from dotenv import load_dotenv
 
-# Load environment variables
-# load_dotenv()
 
 # Flask app initialization
 app = Flask(__name__)
