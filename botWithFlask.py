@@ -86,10 +86,11 @@ async def handle_media(update: Update, context: CallbackContext):
 def webhook():
     try:
         json_str = request.get_data().decode('utf-8')
-        return json_str
         # print("Incoming update:", json_str)  # Log the incoming update
 
         update = Update.de_json(json.loads(json_str), application.bot)
+        return update
+
 
         # Process the update using the persistent event loop
         event_loop.run_until_complete(application.process_update(update))
