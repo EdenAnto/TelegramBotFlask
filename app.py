@@ -114,7 +114,8 @@ def main():
     event_loop.run_until_complete(set_webhook())
 
     # Run the Flask app
-    app.run(host='0.0.0.0', port=8000)
+    port = int(os.environ.get('PORT', 8080))  # Default to 8080 if PORT is not set
+    app.run(host='0.0.0.0', port=port)
 
 if __name__ == '__main__':
     main()
