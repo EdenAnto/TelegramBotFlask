@@ -97,7 +97,7 @@ def webhook():
 
 # Set the webhook URL
 async def set_webhook():
-    webhook_url = "https://a691-212-29-210-225.ngrok-free.app/webhook"
+    webhook_url = "https://weddingtelegrambot.azurewebsites.net/webhook"
     await application.bot.set_webhook(webhook_url)
     # print(f"Webhook successfully set to: {webhook_url}")
 
