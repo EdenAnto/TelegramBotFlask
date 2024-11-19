@@ -8,6 +8,12 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from azure.storage.blob import BlobServiceClient
 import asyncio
 
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
 
 # Flask app initialization
 app = Flask(__name__)
@@ -95,6 +101,7 @@ def webhook():
         
 @app.route('/', methods=['GET'])
 def home():
+    logging.info("Home route accessed.")
     return "Hello World!"
 
 # Set the webhook URL
