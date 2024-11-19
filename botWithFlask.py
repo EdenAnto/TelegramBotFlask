@@ -114,7 +114,7 @@ def main():
     event_loop.run_until_complete(set_webhook())
 
     # Run the Flask app
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=8000)
 
 if __name__ == '__main__':
     main()
