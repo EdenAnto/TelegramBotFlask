@@ -94,7 +94,7 @@ def webhook():
         
 @app.route('/', methods=['GET'])
 def home():
-    return redirect("https://en-wedding.vercel.app", code=302)
+    return "Hello World!"
 
 # Set the webhook URL
 async def set_webhook():
