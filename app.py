@@ -8,12 +8,16 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from azure.storage.blob import BlobServiceClient
 import asyncio
 from dotenv import load_dotenv
+import logging
 
 # Load environment variables
 load_dotenv()
 
 # Flask app initialization
 app = Flask(__name__)
+
+# Enable logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Environment variables
 connection_string = os.getenv('AZ_CSTRING')
@@ -30,15 +34,19 @@ application = Application.builder().token(bot_api).build()
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
-# Persistent asyncio event loop
-event_loop = asyncio.get_event_loop()
+# Create a new asyncio event loop
+event_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(event_loop)
 
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
-    file_data = requests.get(file_url).content
-    blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
-    blob_client.upload_blob(file_data)
-    print(f"Uploaded {file_name} to Azure Blob Storage!")
+    try:
+        file_data = requests.get(file_url).content
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
+        blob_client.upload_blob(file_data, overwrite=True)
+        print(f"Uploaded {file_name} to Azure Blob Storage!")
+    except Exception as e:
+        print(f"Error uploading {file_name} to Azure: {str(e)}")
 
 # Start command to welcome the user
 async def start(update: Update, context: CallbackContext):
@@ -76,41 +84,49 @@ async def handle_media(update: Update, context: CallbackContext):
         await update.message.reply_text("https://en-wedding.vercel.app/")
         await update.message.reply_text("Nessya💍Eden")
 
-        user_last_message_time[sender_id] = current_time
+    user_last_message_time[sender_id] = current_time
 
 # Flask route to handle Telegram webhook
-@app.route('/webhook', methods=['POST'], async=True)
-async def webhook():
-    json_str = request.get_data().decode('utf-8')
-    print("Incoming update:", json_str)  # Log the incoming update
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
+        json_str = request.get_data().decode('utf-8')
+        print("Incoming update:", json_str)  # Log the incoming update
 
-    update = Update.de_json(json.loads(json_str), application.bot)
+        update = Update.de_json(json.loads(json_str), application.bot)
 
-    # Process the update using the persistent event loop
-    await application.process_update(update)
+        # Process the update using the persistent event loop
+        event_loop.run_until_complete(application.process_update(update))
 
-    return 'OK', 200
+        return 'OK', 200
+    except Exception as e:
+        print("Error processing update:", str(e))
+        return 'Internal Server Error', 500
 
 # Set the webhook URL
 async def set_webhook():
-    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
+    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook" 
     await application.bot.set_webhook(webhook_url)
     print(f"Webhook successfully set to: {webhook_url}")
 
 # Main function
-async def main():
-    # Initialize the application
-        asyncio.run(application.initialize())
+def main():
+    try:
+        # Initialize the application
+        event_loop.run_until_complete(application.initialize())
 
-    # Add command and message handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
+        # Add command and message handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
-    # Set the webhook
-    asyncio.run(await set_webhook())
+        # Set the webhook
+        event_loop.run_until_complete(set_webhook())
 
-    # Run the Flask app
-    app.run(host='0.0.0.0', port=8080)
+        # Use dynamic port for Flask in Azure
+        port = int(os.getenv('PORT', 8080))
+        app.run(host='0.0.0.0', port=port)
+    except Exception as e:
+        print(f"Error in main function: {str(e)}")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
