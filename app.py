@@ -38,6 +38,13 @@ response_timeout = 5  # Time in seconds to wait before responding
 event_loop = asyncio.new_event_loop()
 asyncio.set_event_loop(event_loop)
 
+# Ensure the application is initialized before processing updates
+@app.before_first_request
+def initialize_bot():
+    # Run initialization on the persistent event loop
+    event_loop.run_until_complete(application.initialize())
+    print("Telegram bot application initialized!")
+
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
     try:
@@ -112,10 +119,7 @@ async def set_webhook():
 # Main function
 def main():
     try:
-        # Initialize the application
-        event_loop.run_until_complete(application.initialize())
-
-        # Add command and message handlers
+        # Initialize the application and handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
