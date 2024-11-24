@@ -77,6 +77,10 @@ async def handle_media(update: Update, context: CallbackContext):
         await update.message.reply_text("Nessya💍Eden")
 
     user_last_message_time[sender_id] = current_time
+    
+@app.route('/', methods=['GET'])
+def index():
+    return "Hello World!"
 
 # Flask route to handle Telegram webhook
 @app.route('/webhook', methods=['POST'])
