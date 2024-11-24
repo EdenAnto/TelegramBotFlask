@@ -2,12 +2,12 @@ import os
 import json
 import requests
 import time
-import asyncio
 from flask import Flask, request
 from telegram import Update, Message, Bot
 from telegram.ext import ApplicationBuilder
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
+import asyncio
 import logging
 
 # Load environment variables
@@ -32,6 +32,9 @@ bot = Bot(token=bot_api)
 
 # Build application with an increased connection pool
 application = ApplicationBuilder().token(bot_api).connection_pool_size(16).pool_timeout(60).build()
+
+# Create a single event loop for the app
+event_loop = asyncio.get_event_loop()
 
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
@@ -123,10 +126,10 @@ def webhook():
         # Determine action based on message content
         if text and text.startswith("/start"):
             print("Handling /start command")
-            asyncio.run(handle_start(chat_id))
+            asyncio.run_coroutine_threadsafe(handle_start(chat_id), event_loop)
         elif "photo" in message or "video" in message:
             print("Handling media")
-            asyncio.run(handle_media(chat_id, Message.de_json(message, bot)))
+            asyncio.run_coroutine_threadsafe(handle_media(chat_id, Message.de_json(message, bot)), event_loop)
         else:
             print("Unknown message type")
 
