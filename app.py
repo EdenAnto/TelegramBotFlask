@@ -76,24 +76,26 @@ async def handle_media(update: Update, context: CallbackContext):
         await update.message.reply_text("https://en-wedding.vercel.app/")
         await update.message.reply_text("Nessya💍Eden")
 
-        user_last_message_time[sender_id] = current_time
+    user_last_message_time[sender_id] = current_time
 
 # Flask route to handle Telegram webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    try:
-        json_str = request.get_data().decode('utf-8')
-        print("Incoming update:", json_str)  # Log the incoming update
+    json_str = request.get_data().decode('utf-8')
+    print("Incoming update:", json_str)  # Log the incoming update
 
-        update = Update.de_json(json.loads(json_str), application.bot)
+    update = Update.de_json(json.loads(json_str), application.bot)
 
-        # Process the update using the persistent event loop
-        event_loop.run_until_complete(application.process_update(update))
+    # Schedule the update processing to the event loop
+    event_loop.create_task(application.process_update(update))
 
-        return 'OK', 200
-    except Exception as e:
-        print("Error processing update:", str(e))
-        return 'Internal Server Error', 500
+    return 'OK', 200
+
+# Set the webhook URL
+async def set_webhook():
+    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
+    await application.bot.set_webhook(webhook_url)
+    print(f"Webhook successfully set to: {webhook_url}")
 
 # Main function
 def main():
