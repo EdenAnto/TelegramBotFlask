@@ -33,7 +33,7 @@ user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
 # Function to upload media to Azure Blob Storage
-def upload_to_azure(file_url, file_name):
+async def upload_to_azure(file_url, file_name):
     try:
         file_data = requests.get(file_url).content
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
@@ -43,12 +43,12 @@ def upload_to_azure(file_url, file_name):
         print(f"Error uploading {file_name} to Azure: {str(e)}")
 
 # Function to handle /start command
-def handle_start(chat_id):
-    bot.send_message(chat_id=chat_id, text="איזה כיף שהתחברת!🥰")
-    bot.send_message(chat_id=chat_id, text="ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
+async def handle_start(chat_id):
+    await bot.send_message(chat_id=chat_id, text="איזה כיף שהתחברת!🥰")
+    await bot.send_message(chat_id=chat_id, text="ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
 
 # Function to handle media (photos or videos)
-def handle_media(chat_id, message: Message):
+async def handle_media(chat_id, message: Message):
     user_id = message.from_user.id
     current_time = time.time()
 
@@ -61,26 +61,26 @@ def handle_media(chat_id, message: Message):
     if time_difference >= response_timeout:
         # Process photos
         if message.photo:
-            file = bot.get_file(message.photo[-1].file_id)
+            file = await bot.get_file(message.photo[-1].file_id)
             file_url = file.file_path
             file_name = f"wedding_{user_id}_{file.file_id}.jpg"
         # Process videos
         elif message.video:
-            file = bot.get_file(message.video.file_id)
+            file = await bot.get_file(message.video.file_id)
             file_url = file.file_path
             file_name = f"wedding_{user_id}_{file.file_id}.mp4"
         else:
-            bot.send_message(chat_id=chat_id, text="Please send a photo or video!")
+            await bot.send_message(chat_id=chat_id, text="Please send a photo or video!")
             return
 
         # Upload to Azure
-        upload_to_azure(file_url, file_name)
+        await upload_to_azure(file_url, file_name)
 
         # Respond to user
-        bot.send_message(chat_id=chat_id, text="תודה על השיתוף!")
-        bot.send_message(chat_id=chat_id, text="ניתן לצפות בגלריה המלאה בקישור הבא")
-        bot.send_message(chat_id=chat_id, text="https://en-wedding.vercel.app/")
-        bot.send_message(chat_id=chat_id, text="Nessya💍Eden")
+        await bot.send_message(chat_id=chat_id, text="תודה על השיתוף!")
+        await bot.send_message(chat_id=chat_id, text="ניתן לצפות בגלריה המלאה בקישור הבא")
+        await bot.send_message(chat_id=chat_id, text="https://en-wedding.vercel.app/")
+        await bot.send_message(chat_id=chat_id, text="Nessya💍Eden")
 
         # Update last message time
         user_last_message_time[user_id] = current_time
@@ -106,10 +106,10 @@ def webhook():
         # Determine action based on message content
         if text and text.startswith("/start"):
             print("Handling /start command")
-            handle_start(chat_id)
+            asyncio.run(handle_start(chat_id))
         elif "photo" in message or "video" in message:
             print("Handling media")
-            handle_media(chat_id, Message.de_json(message, bot))
+            asyncio.run(handle_media(chat_id, Message.de_json(message, bot)))
         else:
             print("Unknown message type")
 
