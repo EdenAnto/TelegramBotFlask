@@ -1,12 +1,12 @@
 import os
 import json
 import requests
-import asyncio
-from flask import Flask, request
+from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
 import logging
+import threading
 
 # Flask app initialization
 app = Flask(__name__)
@@ -24,7 +24,7 @@ container_name = "media-gallery"
 blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 
 # Telegram Bot application
-application = None  # Placeholder for later initialization
+application = Application.builder().token(bot_api).build()
 
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
@@ -45,7 +45,7 @@ async def start(update: Update, context: CallbackContext):
 # Handle media (images, videos, or other files)
 async def handle_media(update: Update, context: CallbackContext):
     sender_id = update.message.from_user.id
-    current_time = asyncio.get_event_loop().time()
+    current_time = threading.get_ident()  # Simulate time tracking in a thread-safe way
 
     if sender_id in user_last_message_time:
         time_difference = current_time - user_last_message_time[sender_id]
@@ -75,52 +75,28 @@ async def handle_media(update: Update, context: CallbackContext):
 
     user_last_message_time[sender_id] = current_time
 
-# Webhook route
-@app.route('/webhook', methods=['POST'])
-async def webhook():
-    try:
-        json_str = request.get_data().decode('utf-8')
-        logger.info(f"Incoming update: {json_str}")
-
-        update = Update.de_json(json.loads(json_str), application.bot)
-
-        # Process the update
-        await application.process_update(update)
-        return 'OK', 200
-    except Exception as e:
-        logger.error(f"Error processing update: {str(e)}")
-        return 'Internal Server Error', 500
-
-# Root route
-@app.route('/', methods=['GET'])
+# Flask root route
+@app.route('/')
 def index():
     return "Hello World!"
 
-# Set the webhook URL
-async def set_webhook():
-    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
-    await application.bot.set_webhook(webhook_url)
-    logger.info(f"Webhook successfully set to: {webhook_url}")
-
-# Application setup
-async def initialize_application():
-    global application
-    application = Application.builder().token(bot_api).build()
-
+# Function to run the bot using polling
+def run_bot():
     # Add command and message handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
-    # Initialize application and set the webhook
-    await application.initialize()
-    await set_webhook()
+    # Start the bot
+    application.run_polling()
 
-# Main function
+# Main function to run Flask and Telegram bot
 def main():
-    # Ensure application is initialized before starting Flask
-    asyncio.run(initialize_application())
-    
-    # Start Flask app
+    # Run the bot in a separate thread
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+
+    # Run the Flask app
     port = int(os.environ.get('PORT', 8080))  # Default to 8080 if PORT is not set
     app.run(host='0.0.0.0', port=port)
 
