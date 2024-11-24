@@ -1,12 +1,10 @@
 import os
 import json
 import requests
-import time
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
-import asyncio
 from dotenv import load_dotenv
 import logging
 
@@ -33,15 +31,6 @@ application = Application.builder().token(bot_api).build()
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
-
-# Create a new asyncio event loop
-event_loop = asyncio.new_event_loop()
-asyncio.set_event_loop(event_loop)
-
-# Initialize the Telegram bot application
-print("Initializing Telegram bot application...")
-event_loop.run_until_complete(application.initialize())
-print("Telegram bot application initialized!")
 
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
@@ -94,39 +83,26 @@ async def handle_media(update: Update, context: CallbackContext):
 # Flask route to handle Telegram webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    try:
-        json_str = request.get_data().decode('utf-8')
-        print("Incoming update:", json_str)  # Log the incoming update
-
-        update = Update.de_json(json.loads(json_str), application.bot)
-
-        # Process the update using the persistent event loop
-        event_loop.run_until_complete(application.process_update(update))
-
-        return 'OK', 200
-    except Exception as e:
-        print("Error processing update:", str(e))
-        return 'Internal Server Error', 500
-
-# Set the webhook URL
-async def set_webhook():
-    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
-    await application.bot.set_webhook(webhook_url)
-    print(f"Webhook successfully set to: {webhook_url}")
+    json_str = request.get_data().decode('utf-8')
+    update = Update.de_json(json.loads(json_str), application.bot)
+    application.update_queue.put_nowait(update)
+    return 'OK', 200
 
 # Main function
 def main():
     try:
-        # Initialize the application and handlers
+        # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
-        # Set the webhook
-        event_loop.run_until_complete(set_webhook())
-
-        # Use dynamic port for Flask in Azure
-        port = int(os.getenv('PORT', 8080))
-        app.run(host='0.0.0.0', port=port)
+        # Set the webhook and run Flask server with the bot
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=int(os.getenv('PORT', 8080)),
+            url_path="webhook",
+            webhook_url=f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook",
+            app=app,
+        )
     except Exception as e:
         print(f"Error in main function: {str(e)}")
 
