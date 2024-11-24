@@ -2,7 +2,7 @@ import os
 import json
 import requests
 import time
-from flask import Flask, request
+from flask import Flask, request, g
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
@@ -92,7 +92,15 @@ async def handle_media(update: Update, context: CallbackContext):
         await update.message.reply_text("Nessya💍Eden")
 
     user_last_message_time[sender_id] = current_time
-
+    
+@app.before_request
+def initialize_once():
+    if not hasattr(g, 'initialized'):
+        g.initialized = True
+        # Run your bot initialization
+        event_loop.run_until_complete(application.initialize())
+        print("Telegram bot application initialized!")
+        
 # Flask route to handle Telegram webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
