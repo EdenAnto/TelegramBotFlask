@@ -2,10 +2,10 @@ import os
 import json
 import requests
 from flask import Flask, request
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram import Update, Message, Bot
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
+import asyncio
 import logging
 
 # Load environment variables
@@ -25,15 +25,15 @@ bot_api = os.getenv('TELEGRAM_BOT_API')
 container_name = "media-gallery"
 blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 
-# Telegram Bot application
-application = Application.builder().token(bot_api).build()
+# Telegram Bot instance
+bot = Bot(token=bot_api)
 
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
 # Function to upload media to Azure Blob Storage
-async def upload_to_azure(file_url, file_name):
+def upload_to_azure(file_url, file_name):
     try:
         file_data = requests.get(file_url).content
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
@@ -42,67 +42,97 @@ async def upload_to_azure(file_url, file_name):
     except Exception as e:
         print(f"Error uploading {file_name} to Azure: {str(e)}")
 
-# Start command to welcome the user
-async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text("איזה כיף שהתחברת!🥰")
-    await update.message.reply_text("ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
+# Function to handle /start command
+def handle_start(chat_id):
+    bot.send_message(chat_id=chat_id, text="איזה כיף שהתחברת!🥰")
+    bot.send_message(chat_id=chat_id, text="ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
 
-# Handle media (images, videos, or other files)
-async def handle_media(update: Update, context: CallbackContext):
-    sender_id = update.message.from_user.id
+# Function to handle media (photos or videos)
+def handle_media(chat_id, message: Message):
+    user_id = message.from_user.id
     current_time = time.time()
 
-    if sender_id in user_last_message_time:
-        time_difference = current_time - user_last_message_time[sender_id]
+    # Throttling logic
+    if user_id in user_last_message_time:
+        time_difference = current_time - user_last_message_time[user_id]
     else:
         time_difference = response_timeout
 
     if time_difference >= response_timeout:
-        if update.message.photo:
-            file = await update.message.photo[-1].get_file()
-            file_extension = "jpg"
-        elif update.message.video:
-            file = await update.message.video.get_file()
-            file_extension = "mp4"
+        # Process photos
+        if message.photo:
+            file = bot.get_file(message.photo[-1].file_id)
+            file_url = file.file_path
+            file_name = f"wedding_{user_id}_{file.file_id}.jpg"
+        # Process videos
+        elif message.video:
+            file = bot.get_file(message.video.file_id)
+            file_url = file.file_path
+            file_name = f"wedding_{user_id}_{file.file_id}.mp4"
         else:
-            await update.message.reply_text("Please send a photo or video!")
+            bot.send_message(chat_id=chat_id, text="Please send a photo or video!")
             return
 
-        file_url = file.file_path
-        file_name = f"wedding_{update.message.from_user.id}_{file.file_id}.{file_extension}"
+        # Upload to Azure
+        upload_to_azure(file_url, file_name)
 
-        await upload_to_azure(file_url, file_name)
+        # Respond to user
+        bot.send_message(chat_id=chat_id, text="תודה על השיתוף!")
+        bot.send_message(chat_id=chat_id, text="ניתן לצפות בגלריה המלאה בקישור הבא")
+        bot.send_message(chat_id=chat_id, text="https://en-wedding.vercel.app/")
+        bot.send_message(chat_id=chat_id, text="Nessya💍Eden")
 
-        await update.message.reply_text("תודה על השיתוף!")
-        await update.message.reply_text("ניתן לצפות בגלריה המלאה בקישור הבא")
-        await update.message.reply_text("https://en-wedding.vercel.app/")
-        await update.message.reply_text("Nessya💍Eden")
-
-    user_last_message_time[sender_id] = current_time
+        # Update last message time
+        user_last_message_time[user_id] = current_time
 
 # Flask route to handle Telegram webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    json_str = request.get_data().decode('utf-8')
-    update = Update.de_json(json.loads(json_str), application.bot)
-    application.update_queue.put_nowait(update)
-    return 'OK', 200
+    try:
+        json_str = request.get_data().decode('utf-8')
+        print("Incoming update JSON:", json_str)  # Log the incoming update
+        
+        update = json.loads(json_str)
+
+        # Extract chat ID and message
+        message = update.get("message")
+        if not message:
+            print("No message in the update.")
+            return 'OK', 200
+
+        chat_id = message["chat"]["id"]
+        text = message.get("text")
+
+        # Determine action based on message content
+        if text and text.startswith("/start"):
+            print("Handling /start command")
+            handle_start(chat_id)
+        elif "photo" in message or "video" in message:
+            print("Handling media")
+            handle_media(chat_id, Message.de_json(message, bot))
+        else:
+            print("Unknown message type")
+
+        return 'OK', 200
+    except Exception as e:
+        print("Error processing webhook:", str(e))
+        return 'Internal Server Error', 500
+
+# Function to set the Telegram webhook
+def set_webhook():
+    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
+    response = bot.set_webhook(url=webhook_url)
+    print(f"Webhook set to: {webhook_url} -> {response}")
 
 # Main function
 def main():
     try:
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
+        # Set the webhook
+        set_webhook()
 
-        # Set the webhook and run Flask server with the bot
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=int(os.getenv('PORT', 8080)),
-            url_path="webhook",
-            webhook_url=f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook",
-            app=app,
-        )
+        # Use dynamic port for Flask in Azure
+        port = int(os.getenv('PORT', 8080))
+        app.run(host='0.0.0.0', port=port)
     except Exception as e:
         print(f"Error in main function: {str(e)}")
 
