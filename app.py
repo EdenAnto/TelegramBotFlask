@@ -11,6 +11,10 @@ import logging
 # Flask app initialization
 app = Flask(__name__)
 
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Environment variables
 connection_string = os.getenv('AZ_CSTRING')
 bot_api = os.getenv('TELEGRAM_BOT_API')
@@ -20,11 +24,7 @@ container_name = "media-gallery"
 blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 
 # Telegram Bot application
-application = None  # Placeholder, will be initialized later
-
-# Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+application = None  # Initialize later to avoid premature usage
 
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
@@ -115,10 +115,14 @@ async def initialize_application():
     await application.initialize()
     await set_webhook()
 
+# Ensure application is initialized before Flask starts
+@app.before_first_request
+def before_first_request():
+    asyncio.run(initialize_application())
+
 # Main function
 def main():
-    global application
-    asyncio.run(initialize_application())  # Fully initialize application before starting Flask
+    # Start Flask app
     port = int(os.environ.get('PORT', 8080))  # Default to 8080 if PORT is not set
     app.run(host='0.0.0.0', port=port)
 
