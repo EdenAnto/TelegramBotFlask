@@ -1,16 +1,11 @@
 import os
 import json
 import requests
-import time
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
 import asyncio
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
 
 # Flask app initialization
 app = Flask(__name__)
@@ -28,16 +23,13 @@ application = Application.builder().token(bot_api).build()
 
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
-response_timeout = 5  # Time in seconds to wait before responding
-
-# Persistent asyncio event loop
-event_loop = asyncio.get_event_loop()
+response_timeout = 5
 
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
     file_data = requests.get(file_url).content
     blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
-    blob_client.upload_blob(file_data)
+    blob_client.upload_blob(file_data, overwrite=True)
     print(f"Uploaded {file_name} to Azure Blob Storage!")
 
 # Start command to welcome the user
@@ -48,7 +40,7 @@ async def start(update: Update, context: CallbackContext):
 # Handle media (images, videos, or other files)
 async def handle_media(update: Update, context: CallbackContext):
     sender_id = update.message.from_user.id
-    current_time = time.time()
+    current_time = asyncio.get_event_loop().time()
 
     if sender_id in user_last_message_time:
         time_difference = current_time - user_last_message_time[sender_id]
@@ -83,12 +75,12 @@ async def handle_media(update: Update, context: CallbackContext):
 def webhook():
     try:
         json_str = request.get_data().decode('utf-8')
-        print("Incoming update:", json_str)  # Log the incoming update
+        print("Incoming update:", json_str)
 
         update = Update.de_json(json.loads(json_str), application.bot)
 
-        # Process the update using the persistent event loop
-        event_loop.run_until_complete(application.process_update(update))
+        # Process the update using an asynchronous event loop
+        asyncio.run(application.process_update(update))
 
         return 'OK', 200
     except Exception as e:
@@ -97,24 +89,25 @@ def webhook():
 
 # Set the webhook URL
 async def set_webhook():
-    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook" 
+    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
     await application.bot.set_webhook(webhook_url)
     print(f"Webhook successfully set to: {webhook_url}")
 
 # Main function
 def main():
-    # Initialize the application
-    event_loop.run_until_complete(application.initialize())
+    # Initialize the bot application
+    asyncio.run(application.initialize())
 
     # Add command and message handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
     # Set the webhook
-    event_loop.run_until_complete(set_webhook())
+    asyncio.run(set_webhook())
 
-    # Run the Flask app
-    app.run(host='0.0.0.0', port=8080)
+    # Run Flask app
+    port = int(os.environ.get('PORT', 8080))  # Use the port set by the environment
+    app.run(host='0.0.0.0', port=port)
 
 if __name__ == '__main__':
     main()
