@@ -100,14 +100,14 @@ async def set_webhook():
 # Main function
 async def main():
     # Initialize the application
-    await application.initialize()
+        asyncio.run(application.initialize())
 
     # Add command and message handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
     # Set the webhook
-    await set_webhook()
+    asyncio.run(await set_webhook())
 
     # Run the Flask app
     app.run(host='0.0.0.0', port=8080)
