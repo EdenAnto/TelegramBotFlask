@@ -45,7 +45,7 @@ async def start(update: Update, context: CallbackContext):
 # Handle media (images, videos, or other files)
 async def handle_media(update: Update, context: CallbackContext):
     sender_id = update.message.from_user.id
-    current_time = asyncio.time()
+    current_time = asyncio.get_event_loop().time()
 
     if sender_id in user_last_message_time:
         time_difference = current_time - user_last_message_time[sender_id]
@@ -84,7 +84,7 @@ def webhook():
 
         update = Update.de_json(json.loads(json_str), application.bot)
 
-        # Process the update
+        # Use asyncio.run to process updates
         asyncio.run(application.process_update(update))
         return 'OK', 200
     except Exception as e:
@@ -102,8 +102,8 @@ async def set_webhook():
     await application.bot.set_webhook(webhook_url)
     logger.info(f"Webhook successfully set to: {webhook_url}")
 
-# Main async function
-async def main_async():
+# Application initialization function
+async def initialize_application():
     # Initialize the application
     await application.initialize()
 
@@ -114,12 +114,15 @@ async def main_async():
     # Set the webhook
     await set_webhook()
 
-    # Start receiving updates via the webhook
+    # Start the application (important for webhook mode)
     await application.start()
 
 # Main function
 def main():
-    asyncio.run(main_async())
+    # Initialize and start the application asynchronously
+    asyncio.run(initialize_application())
+
+    # Start Flask app
     port = int(os.environ.get('PORT', 8080))  # Default to 8080 if PORT is not set
     app.run(host='0.0.0.0', port=port)
 
