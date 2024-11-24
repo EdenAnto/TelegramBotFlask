@@ -81,24 +81,28 @@ async def handle_media(update: Update, context: CallbackContext):
 # Flask route to handle Telegram webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    json_str = request.get_data().decode('utf-8')
-    print("Incoming update:", json_str)  # Log the incoming update
+    try:
+        json_str = request.get_data().decode('utf-8')
+        print("Incoming update:", json_str)  # Log the incoming update
 
-    update = Update.de_json(json.loads(json_str), application.bot)
+        update = Update.de_json(json.loads(json_str), application.bot)
 
-    # Process the update using the persistent event loop
-    asyncio.run_coroutine_threadsafe(application.process_update(update), event_loop)
+        # Process the update using the persistent event loop
+        event_loop.run_until_complete(application.process_update(update))
 
-    return 'OK', 200
+        return 'OK', 200
+    except Exception as e:
+        print("Error processing update:", str(e))
+        return 'Internal Server Error', 500
 
 # Set the webhook URL
 async def set_webhook():
-    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
+    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook" 
     await application.bot.set_webhook(webhook_url)
     print(f"Webhook successfully set to: {webhook_url}")
 
 # Main function
-async def main():
+def main():
     # Initialize the application
     await application.initialize()
 
@@ -113,4 +117,4 @@ async def main():
     app.run(host='0.0.0.0', port=8080)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
