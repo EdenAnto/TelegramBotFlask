@@ -86,8 +86,8 @@ def webhook():
 
     update = Update.de_json(json.loads(json_str), application.bot)
 
-    # Schedule the update processing to the event loop
-    event_loop.create_task(application.process_update(update))
+    # Process the update using the persistent event loop
+    asyncio.run_coroutine_threadsafe(application.process_update(update), event_loop)
 
     return 'OK', 200
 
