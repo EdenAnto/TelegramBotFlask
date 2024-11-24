@@ -2,33 +2,42 @@ import os
 import json
 import requests
 import time
-from flask import Flask
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
-from apscheduler.schedulers.background import BackgroundScheduler
+import asyncio
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Flask app initialization
 app = Flask(__name__)
 
-# Azure Blob Storage and Telegram bot setup
+# Environment variables
 connection_string = os.getenv('AZ_CSTRING')
 bot_api = os.getenv('TELEGRAM_BOT_API')
+
+# Azure Blob Storage setup
 container_name = "media-gallery"
 blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 
-# Dictionary to store the time of the last message for each user
-user_last_message_time = {}
-response_timeout = 5
-
 # Telegram Bot application
 application = Application.builder().token(bot_api).build()
+
+# Dictionary to store the time of the last message for each user
+user_last_message_time = {}
+response_timeout = 5  # Time in seconds to wait before responding
+
+# Persistent asyncio event loop
+event_loop = asyncio.get_event_loop()
 
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
     file_data = requests.get(file_url).content
     blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
-    blob_client.upload_blob(file_data, overwrite=True)
+    blob_client.upload_blob(file_data)
     print(f"Uploaded {file_name} to Azure Blob Storage!")
 
 # Start command to welcome the user
@@ -69,38 +78,43 @@ async def handle_media(update: Update, context: CallbackContext):
 
     user_last_message_time[sender_id] = current_time
 
-# Add Telegram bot handlers
-def add_telegram_handlers():
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
+# Flask route to handle Telegram webhook
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
+        json_str = request.get_data().decode('utf-8')
+        print("Incoming update:", json_str)  # Log the incoming update
 
-# Start polling in the background
-def start_polling():
-    print("Starting Telegram bot polling...")
-    application.run_polling()
+        update = Update.de_json(json.loads(json_str), application.bot)
 
-# Flask route
-@app.route('/')
-def index():
-    return "Hello, Flask and Telegram bot are running!"
+        # Process the update using the persistent event loop
+        event_loop.run_until_complete(application.process_update(update))
 
-@app.route('/status', methods=['GET'])
-def status():
-    return {"status": "Running"}
+        return 'OK', 200
+    except Exception as e:
+        print("Error processing update:", str(e))
+        return 'Internal Server Error', 500
+
+# Set the webhook URL
+async def set_webhook():
+    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook" 
+    await application.bot.set_webhook(webhook_url)
+    print(f"Webhook successfully set to: {webhook_url}")
 
 # Main function
 def main():
-    # Add Telegram bot handlers
-    add_telegram_handlers()
+    # Initialize the application
+    event_loop.run_until_complete(application.initialize())
 
-    # Start Telegram bot polling in a background thread
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(start_polling, 'interval', seconds=1)
-    scheduler.start()
+    # Add command and message handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
-    # Run Flask app
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
+    # Set the webhook
+    event_loop.run_until_complete(set_webhook())
+
+    # Run the Flask app
+    app.run(host='0.0.0.0', port=8080)
 
 if __name__ == '__main__':
     main()
