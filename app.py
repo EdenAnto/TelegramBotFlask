@@ -2,17 +2,13 @@ import os
 import json
 import requests
 import time
-import threading
-from flask import Flask, jsonify
+from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
-from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
 
-# Load environment variables
-load_dotenv()
-
-# Initialize Flask app
+# Flask app initialization
 app = Flask(__name__)
 
 # Azure Blob Storage and Telegram bot setup
@@ -23,11 +19,13 @@ blob_service_client = BlobServiceClient.from_connection_string(connection_string
 
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
-response_timeout = 5  # Time in seconds to wait before responding (adjust as needed)
+response_timeout = 5
+
+# Telegram Bot application
+application = Application.builder().token(bot_api).build()
 
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
-    global blob_service_client
     file_data = requests.get(file_url).content
     blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
     blob_client.upload_blob(file_data, overwrite=True)
@@ -71,38 +69,37 @@ async def handle_media(update: Update, context: CallbackContext):
 
     user_last_message_time[sender_id] = current_time
 
-# Telegram bot setup and polling
-def run_bot():
-    global bot_api
-    application = Application.builder().token(bot_api).build()
-
-    # Command handler to start the bot
+# Add Telegram bot handlers
+def add_telegram_handlers():
     application.add_handler(CommandHandler("start", start))
-
-    # Handler for receiving photos and videos
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
-    # Start the bot
+# Start polling in the background
+def start_polling():
+    print("Starting Telegram bot polling...")
     application.run_polling()
 
-# Flask routes
+# Flask route
 @app.route('/')
 def index():
-    return "Hello, Flask is running alongside Telegram polling!"
+    return "Hello, Flask and Telegram bot are running!"
 
 @app.route('/status', methods=['GET'])
 def status():
-    return jsonify({"status": "Flask and Telegram bot are running!"})
+    return {"status": "Running"}
 
-# Main function to run both Flask and Telegram bot
+# Main function
 def main():
-    # Start the Telegram bot in a separate thread
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.daemon = True  # Ensures the thread exits when the main program does
-    bot_thread.start()
+    # Add Telegram bot handlers
+    add_telegram_handlers()
 
-    # Start the Flask app
-    port = int(os.environ.get('PORT', 8080))  # Use the PORT environment variable if available
+    # Start Telegram bot polling in a background thread
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(start_polling, 'interval', seconds=1)
+    scheduler.start()
+
+    # Run Flask app
+    port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
 
 if __name__ == '__main__':
