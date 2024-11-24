@@ -20,7 +20,7 @@ container_name = "media-gallery"
 blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 
 # Telegram Bot application
-application = None  # Initialize later to avoid early usage
+application = None  # Placeholder, will be initialized later
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -117,7 +117,8 @@ async def initialize_application():
 
 # Main function
 def main():
-    asyncio.run(initialize_application())
+    global application
+    asyncio.run(initialize_application())  # Fully initialize application before starting Flask
     port = int(os.environ.get('PORT', 8080))  # Default to 8080 if PORT is not set
     app.run(host='0.0.0.0', port=port)
 
