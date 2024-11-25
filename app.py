@@ -31,10 +31,6 @@ application = Application.builder().token(bot_api).build()
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
-# Persistent asyncio event loop
-event_loop = asyncio.new_event_loop()
-asyncio.set_event_loop(event_loop)
-
 
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
@@ -46,11 +42,10 @@ async def upload_to_azure(file_url, file_name):
 
 # Start command to welcome the user
 async def start(update: Update, context: CallbackContext):
-    print("sending welcome message start")
+    print("Sending welcome message...")
     await update.message.reply_text("איזה כיף שהתחברת!🥰")
     await update.message.reply_text("ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
-    print("sending welcome message completed")
-
+    print("Welcome message sent.")
 
 
 # Handle media (images, videos, or other files)
@@ -96,8 +91,8 @@ def webhook():
 
         update = Update.de_json(json.loads(json_str), application.bot)
 
-        # Process the update using the persistent event loop
-        event_loop.run_until_complete(application.process_update(update))
+        # Process the update asynchronously
+        asyncio.create_task(application.process_update(update))
 
         return 'OK', 200
     except Exception as e:
@@ -105,33 +100,38 @@ def webhook():
         return 'Internal Server Error', 500
 
 
-# Initialize bot and set webhook
-try:
-    # Initialize the bot application
-    print("Initializing Telegram bot...")
-    event_loop.run_until_complete(application.initialize())
-    print("Bot initialized.")
+# Asynchronous initialization function
+async def initialize_bot():
+    global application
 
-    # Add command and message handlers
+    print("Initializing Telegram bot...")
+    await application.initialize()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
-    # Set the webhook
+    # Set webhook
+    if not webhook_host:
+        raise RuntimeError("MY_WEBSITE_HOSTNAME environment variable is not set")
     webhook_url = f"https://{webhook_host}/webhook"
     print(f"Setting webhook to {webhook_url}...")
-    result = event_loop.run_until_complete(application.bot.set_webhook(webhook_url))
-
+    result = await application.bot.set_webhook(webhook_url)
     if result:
         print(f"Webhook successfully set to: {webhook_url}")
     else:
-        print("Failed to set webhook. Exiting.")
-        exit(1)
-
-except Exception as e:
-    print(f"Error during bot initialization: {e}")
-    exit(1)
+        raise RuntimeError("Failed to set webhook")
 
 
 # Start Flask server
-print("Starting Flask server...")
-app.run(host='0.0.0.0', port=8080)
+def start_flask():
+    print("Starting Flask server...")
+    app.run(host='0.0.0.0', port=8080)
+
+
+# Main entry point
+if __name__ == '__main__':
+    try:
+        asyncio.run(initialize_bot())
+        start_flask()
+    except Exception as e:
+        print(f"Error: {e}")
+        exit(1)
