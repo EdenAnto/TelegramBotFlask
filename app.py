@@ -3,21 +3,17 @@ import json
 import requests
 import time
 from flask import Flask, request
-from telegram import Update, Message, Bot
-from telegram.ext import ApplicationBuilder
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from azure.storage.blob import BlobServiceClient
-from dotenv import load_dotenv
 import asyncio
-import logging
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 # Flask app initialization
 app = Flask(__name__)
-
-# Enable logging
-logging.basicConfig(level=logging.DEBUG)
 
 # Environment variables
 connection_string = os.getenv('AZ_CSTRING')
@@ -27,134 +23,113 @@ bot_api = os.getenv('TELEGRAM_BOT_API')
 container_name = "media-gallery"
 blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 
-# Telegram Bot instance
-bot = Bot(token=bot_api)
-
-# Build application with an increased connection pool
-application = ApplicationBuilder().token(bot_api).connection_pool_size(16).pool_timeout(60).build()
-
-# Create a single event loop for the app
-event_loop = asyncio.get_event_loop()
+# Telegram Bot application
+application = Application.builder().token(bot_api).build()
 
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
+# Persistent asyncio event loop
+event_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(event_loop)
+
+# Flag to indicate if the bot is initialized
+bot_initialized = False
+
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
-    try:
-        file_data = requests.get(file_url).content
-        blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
-        blob_client.upload_blob(file_data, overwrite=True)
-        print(f"Uploaded {file_name} to Azure Blob Storage!")
-    except Exception as e:
-        print(f"Error uploading {file_name} to Azure: {str(e)}")
+    file_data = requests.get(file_url).content
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
+    blob_client.upload_blob(file_data)
+    print(f"Uploaded {file_name} to Azure Blob Storage!")
 
-# Function to handle /start command
-async def handle_start(chat_id):
-    try:
-        print("Sending message 1...")
-        await bot.send_message(chat_id=chat_id, text="איזה כיף שהתחברת!🥰")
-        print("Message 1 sent.")
-        await asyncio.sleep(1)  # Add delay to avoid spamming the connection pool
-        await bot.send_message(chat_id=chat_id, text="ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
-        print("Message 2 sent.")
-    except Exception as e:
-        print(f"Error in handle_start: {str(e)}")
+# Start command to welcome the user
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text("איזה כיף שהתחברת!🥰")
+    await update.message.reply_text("ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
 
-# Function to handle media (photos or videos)
-async def handle_media(chat_id, message: Message):
-    try:
-        user_id = message.from_user.id
-        current_time = time.time()
+# Handle media (images, videos, or other files)
+async def handle_media(update: Update, context: CallbackContext):
+    sender_id = update.message.from_user.id
+    current_time = time.time()
 
-        # Throttling logic
-        if user_id in user_last_message_time:
-            time_difference = current_time - user_last_message_time[user_id]
+    if sender_id in user_last_message_time:
+        time_difference = current_time - user_last_message_time[sender_id]
+    else:
+        time_difference = response_timeout
+
+    if time_difference >= response_timeout:
+        if update.message.photo:
+            file = await update.message.photo[-1].get_file()
+            file_extension = "jpg"
+        elif update.message.video:
+            file = await update.message.video.get_file()
+            file_extension = "mp4"
         else:
-            time_difference = response_timeout
+            await update.message.reply_text("Please send a photo or video!")
+            return
 
-        if time_difference >= response_timeout:
-            # Process photos
-            if message.photo:
-                file = await bot.get_file(message.photo[-1].file_id)
-                file_url = file.file_path
-                file_name = f"wedding_{user_id}_{file.file_id}.jpg"
-            # Process videos
-            elif message.video:
-                file = await bot.get_file(message.video.file_id)
-                file_url = file.file_path
-                file_name = f"wedding_{user_id}_{file.file_id}.mp4"
-            else:
-                await bot.send_message(chat_id=chat_id, text="Please send a photo or video!")
-                return
+        file_url = file.file_path
+        file_name = f"wedding_{update.message.from_user.id}_{file.file_id}.{file_extension}"
 
-            # Upload to Azure
-            await upload_to_azure(file_url, file_name)
+        await upload_to_azure(file_url, file_name)
 
-            # Respond to user
-            await bot.send_message(chat_id=chat_id, text="תודה על השיתוף!")
-            await asyncio.sleep(1)
-            await bot.send_message(chat_id=chat_id, text="ניתן לצפות בגלריה המלאה בקישור הבא")
-            await asyncio.sleep(1)
-            await bot.send_message(chat_id=chat_id, text="https://en-wedding.vercel.app/")
-            await bot.send_message(chat_id=chat_id, text="Nessya💍Eden")
+        await update.message.reply_text("תודה על השיתוף!")
+        await update.message.reply_text("ניתן לצפות בגלריה המלאה בקישור הבא")
+        await update.message.reply_text("https://en-wedding.vercel.app/")
+        await update.message.reply_text("Nessya💍Eden")
 
-            # Update last message time
-            user_last_message_time[user_id] = current_time
-    except Exception as e:
-        print(f"Error in handle_media: {str(e)}")
+    user_last_message_time[sender_id] = current_time
 
 # Flask route to handle Telegram webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    if not bot_initialized:
+        print("Bot is not initialized yet. Skipping webhook processing.")
+        return 'Service Unavailable', 503  # Temporary error until the bot is ready
+
     try:
         json_str = request.get_data().decode('utf-8')
-        print("Incoming update JSON:", json_str)  # Log the incoming update
-        
-        update = json.loads(json_str)
+        print("Incoming update:", json_str)  # Log the incoming update
 
-        # Extract chat ID and message
-        message = update.get("message")
-        if not message:
-            print("No message in the update.")
-            return 'OK', 200
+        update = Update.de_json(json.loads(json_str), application.bot)
 
-        chat_id = message["chat"]["id"]
-        text = message.get("text")
-
-        # Determine action based on message content
-        if text and text.startswith("/start"):
-            print("Handling /start command")
-            asyncio.run_coroutine_threadsafe(handle_start(chat_id), event_loop)
-        elif "photo" in message or "video" in message:
-            print("Handling media")
-            asyncio.run_coroutine_threadsafe(handle_media(chat_id, Message.de_json(message, bot)), event_loop)
-        else:
-            print("Unknown message type")
+        # Process the update using the persistent event loop
+        event_loop.run_until_complete(application.process_update(update))
 
         return 'OK', 200
     except Exception as e:
-        print("Error processing webhook:", str(e))
+        print("Error processing update:", str(e))
         return 'Internal Server Error', 500
 
-# Function to set the Telegram webhook
-def set_webhook():
+# Set the webhook URL
+async def set_webhook():
     webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
-    response = bot.set_webhook(url=webhook_url)
-    print(f"Webhook set to: {webhook_url} -> {response}")
+    await application.bot.set_webhook(webhook_url)
+    print(f"Webhook successfully set to: {webhook_url}")
 
 # Main function
 def main():
-    try:
-        # Set the webhook
-        set_webhook()
+    global bot_initialized
 
-        # Use dynamic port for Flask in Azure
-        port = int(os.getenv('PORT', 8080))
-        app.run(host='0.0.0.0', port=port)
-    except Exception as e:
-        print(f"Error in main function: {str(e)}")
+    # Initialize the application
+    print("Initializing Telegram bot...")
+    event_loop.run_until_complete(application.initialize())
+    bot_initialized = True  # Mark as initialized
+    print("Telegram bot initialized.")
+
+    # Add command and message handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
+
+    # Set the webhook
+    print("Setting webhook...")
+    event_loop.run_until_complete(set_webhook())
+
+    # Run the Flask app
+    print("Starting Flask server...")
+    app.run(host='0.0.0.0', port=8080)
 
 if __name__ == '__main__':
     main()
