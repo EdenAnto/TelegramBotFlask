@@ -105,7 +105,7 @@ def webhook():
 
 # Set the webhook URL
 async def set_webhook():
-    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
+    webhook_url = f"https://{os.getenv('MY_WEBSITE_HOSTNAME')}/webhook"
     await application.bot.set_webhook(webhook_url)
     print(f"Webhook successfully set to: {webhook_url}")
 
