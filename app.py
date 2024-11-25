@@ -1,24 +1,19 @@
 import os
 import json
-import requests
-import time
-from flask import Flask, request
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
-from azure.storage.blob import BlobServiceClient
+import aiohttp
 import asyncio
+from fastapi import FastAPI, Request
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from azure.storage.blob.aio import BlobServiceClient
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Flask app initialization
-app = Flask(__name__)
-
 # Environment variables
 connection_string = os.getenv('AZ_CSTRING')
 bot_api = os.getenv('TELEGRAM_BOT_API')
-webhook_host = os.getenv('MY_WEBSITE_HOSTNAME')
 
 # Azure Blob Storage setup
 container_name = "media-gallery"
@@ -27,36 +22,31 @@ blob_service_client = BlobServiceClient.from_connection_string(connection_string
 # Telegram Bot application
 application = Application.builder().token(bot_api).build()
 
+# FastAPI application
+app = FastAPI()
+
 # Dictionary to store the time of the last message for each user
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
-# Persistent asyncio event loop
-event_loop = asyncio.new_event_loop()
-asyncio.set_event_loop(event_loop)
-
-
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
-    file_data = requests.get(file_url).content
-    blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
-    blob_client.upload_blob(file_data)
-    print(f"Uploaded {file_name} to Azure Blob Storage!")
-
+    async with aiohttp.ClientSession() as session:
+        async with session.get(file_url) as response:
+            file_data = await response.read()
+            blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
+            await blob_client.upload_blob(file_data)
+            print(f"Uploaded {file_name} to Azure Blob Storage!")
 
 # Start command to welcome the user
-async def start(update: Update, context: CallbackContext):
-    print("sending welcome message start")
+async def start(update: Update, context):
     await update.message.reply_text("איזה כיף שהתחברת!🥰")
     await update.message.reply_text("ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
-    print("sending welcome message completed")
-
-
 
 # Handle media (images, videos, or other files)
-async def handle_media(update: Update, context: CallbackContext):
+async def handle_media(update: Update, context):
     sender_id = update.message.from_user.id
-    current_time = time.time()
+    current_time = asyncio.get_event_loop().time()
 
     if sender_id in user_last_message_time:
         time_difference = current_time - user_last_message_time[sender_id]
@@ -86,52 +76,37 @@ async def handle_media(update: Update, context: CallbackContext):
 
     user_last_message_time[sender_id] = current_time
 
-
-# Flask route to handle Telegram webhook
-@app.route('/webhook', methods=['POST'])
-def webhook():
+# Webhook endpoint
+@app.post("/webhook")
+async def webhook(request: Request):
     try:
-        json_str = request.get_data().decode('utf-8')
-        print("Incoming update:", json_str)  # Log the incoming update
-
+        json_str = await request.body()
         update = Update.de_json(json.loads(json_str), application.bot)
-
-        # Process the update using the persistent event loop
-        event_loop.run_until_complete(application.process_update(update))
-
-        return 'OK', 200
+        await application.process_update(update)
+        return {"status": "ok"}
     except Exception as e:
-        print("Error processing update:", str(e))
-        return 'Internal Server Error', 500
+        print(f"Error processing update: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
+# Set the webhook URL
+async def set_webhook():
+    webhook_url = f"https://{os.getenv('MY_WEBSITE_HOSTNAME')}/webhook"  # Replace with your actual webhook URL
+    await application.bot.set_webhook(webhook_url)
+    print(f"Webhook successfully set to: {webhook_url}")
 
-# Initialize bot and set webhook
-try:
-    # Initialize the bot application
-    print("Initializing Telegram bot...")
-    event_loop.run_until_complete(application.initialize())
-    print("Bot initialized.")
-
-    # Add command and message handlers
+# Add command and message handlers
+def add_handlers():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
-    # Set the webhook
-    webhook_url = f"https://{webhook_host}/webhook"
-    print(f"Setting webhook to {webhook_url}...")
-    result = event_loop.run_until_complete(application.bot.set_webhook(webhook_url))
+# Initialize the bot and set the webhook
+async def initialize_bot():
+    add_handlers()
+    await application.initialize()
+    await set_webhook()
+    print("Bot is ready!")
 
-    if result:
-        print(f"Webhook successfully set to: {webhook_url}")
-    else:
-        print("Failed to set webhook. Exiting.")
-        exit(1)
-
-except Exception as e:
-    print(f"Error during bot initialization: {e}")
-    exit(1)
-
-
-# Start Flask server
-print("Starting Flask server...")
-app.run(host='0.0.0.0', port=8080)
+# Initialize the bot when the server starts
+@app.on_event("startup")
+async def on_startup():
+    await initialize_bot()
