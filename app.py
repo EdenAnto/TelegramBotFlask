@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import time
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
@@ -17,7 +18,7 @@ app = Flask(__name__)
 # Environment variables
 connection_string = os.getenv('AZ_CSTRING')
 bot_api = os.getenv('TELEGRAM_BOT_API')
-hostname = os.getenv('MY_WEBSITE_HOSTNAME')
+webhook_host = os.getenv('MY_WEBSITE_HOSTNAME')
 
 # Azure Blob Storage setup
 container_name = "media-gallery"
@@ -30,12 +31,9 @@ application = Application.builder().token(bot_api).build()
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
-# Centralized asyncio event loop
+# Persistent asyncio event loop
 event_loop = asyncio.new_event_loop()
 asyncio.set_event_loop(event_loop)
-
-# Bot initialization flag
-bot_initialized = False
 
 
 # Function to upload media to Azure Blob Storage
@@ -48,8 +46,11 @@ async def upload_to_azure(file_url, file_name):
 
 # Start command to welcome the user
 async def start(update: Update, context: CallbackContext):
+    print("sending welcome message start")
     await update.message.reply_text("איזה כיף שהתחברת!🥰")
     await update.message.reply_text("ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
+    print("sending welcome message completed")
+
 
 
 # Handle media (images, videos, or other files)
@@ -89,19 +90,14 @@ async def handle_media(update: Update, context: CallbackContext):
 # Flask route to handle Telegram webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    global bot_initialized
-    if not bot_initialized:
-        print("Bot is not initialized yet. Skipping webhook processing.")
-        return 'Service Unavailable', 503  # Temporary error until the bot is ready
-
     try:
         json_str = request.get_data().decode('utf-8')
         print("Incoming update:", json_str)  # Log the incoming update
 
         update = Update.de_json(json.loads(json_str), application.bot)
 
-        # Process the update asynchronously
-        event_loop.create_task(application.process_update(update))
+        # Process the update using the persistent event loop
+        event_loop.run_until_complete(application.process_update(update))
 
         return 'OK', 200
     except Exception as e:
@@ -109,47 +105,33 @@ def webhook():
         return 'Internal Server Error', 500
 
 
-# Main function for initialization
-async def initialize_bot():
-    global bot_initialized
-
+# Initialize bot and set webhook
+try:
+    # Initialize the bot application
     print("Initializing Telegram bot...")
-    await application.initialize()  # Initialize the bot
+    event_loop.run_until_complete(application.initialize())
+    print("Bot initialized.")
 
     # Add command and message handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
-    # Set the webhook only after bot initialization is complete
-    webhook_url = f"https://{hostname}/webhook"
+    # Set the webhook
+    webhook_url = f"https://{webhook_host}/webhook"
     print(f"Setting webhook to {webhook_url}...")
-    result = await application.bot.set_webhook(webhook_url)
+    result = event_loop.run_until_complete(application.bot.set_webhook(webhook_url))
 
     if result:
         print(f"Webhook successfully set to: {webhook_url}")
-        bot_initialized = True  # Mark the bot as initialized
     else:
         print("Failed to set webhook. Exiting.")
-        raise RuntimeError("Webhook setup failed")
-
-
-# Start the Flask app after initialization
-def start_flask_app():
-    print("Starting Flask server...")
-    app.run(host='0.0.0.0', port=8080)
-
-
-if __name__ == '__main__':
-    # Check if hostname and bot API are properly configured
-    if not hostname or not bot_api:
-        print("Error: Missing MY_WEBSITE_HOSTNAME or TELEGRAM_BOT_API environment variables.")
         exit(1)
 
-    # Initialize the bot in the event loop
-    try:
-        event_loop.run_until_complete(initialize_bot())
-        # Start the Flask server after initialization
-        start_flask_app()
-    except Exception as e:
-        print(f"Error during initialization: {e}")
-        exit(1)
+except Exception as e:
+    print(f"Error during bot initialization: {e}")
+    exit(1)
+
+
+# Start Flask server
+print("Starting Flask server...")
+app.run(host='0.0.0.0', port=8080)
