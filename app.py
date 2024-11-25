@@ -103,19 +103,13 @@ def webhook():
         print("Error processing update:", str(e))
         return 'Internal Server Error', 500
 
-# Set the webhook URL
-async def set_webhook():
-    webhook_url = f"https://{os.getenv('MY_WEBSITE_HOSTNAME')}/webhook"
-    await application.bot.set_webhook(webhook_url)
-    print(f"Webhook successfully set to: {webhook_url}")
-
 # Main function
-def main():
+async def main():
     global bot_initialized
 
     # Initialize the application
     print("Initializing Telegram bot...")
-    event_loop.run_until_complete(application.initialize())
+    await application.initialize()  # Await the initialization
     bot_initialized = True  # Mark as initialized
     print("Telegram bot initialized.")
 
@@ -125,11 +119,13 @@ def main():
 
     # Set the webhook
     print("Setting webhook...")
-    event_loop.run_until_complete(set_webhook())
+    webhook_url = f"https://{os.getenv('MY_WEBSITE_HOSTNAME')}/webhook"
+    await application.bot.set_webhook(webhook_url)
+    print(f"Webhook successfully set to: {webhook_url}")
 
-    # Run the Flask app
+    # Start Flask server
     print("Starting Flask server...")
     app.run(host='0.0.0.0', port=8080)
 
 if __name__ == '__main__':
-    main()
+    event_loop.run_until_complete(main())
