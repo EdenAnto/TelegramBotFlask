@@ -31,6 +31,10 @@ application = Application.builder().token(bot_api).build()
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
+# Persistent asyncio event loop
+event_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(event_loop)
+
 
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
@@ -91,12 +95,15 @@ def webhook():
 
         update = Update.de_json(json.loads(json_str), application.bot)
 
-        # Process the update asynchronously
-        asyncio.create_task(application.process_update(update))
+        # Ensure the task runs on the correct event loop
+        future = asyncio.run_coroutine_threadsafe(
+            application.process_update(update), event_loop
+        )
+        future.result()  # Wait for the task to complete
 
         return 'OK', 200
     except Exception as e:
-        print("Error processing update:", str(e))
+        print(f"Error processing update: {e}")
         return 'Internal Server Error', 500
 
 
@@ -130,7 +137,9 @@ def start_flask():
 # Main entry point
 if __name__ == '__main__':
     try:
-        asyncio.run(initialize_bot())
+        # Run bot initialization in the event loop
+        event_loop.run_until_complete(initialize_bot())
+        # Start Flask server
         start_flask()
     except Exception as e:
         print(f"Error: {e}")
