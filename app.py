@@ -7,7 +7,6 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from azure.storage.blob.aio import BlobServiceClient
 from dotenv import load_dotenv
-from telegram.error import RetryAfter
 
 # Load environment variables
 load_dotenv()
@@ -37,7 +36,7 @@ async def upload_to_azure(file_url, file_name):
         async with session.get(file_url) as response:
             file_data = await response.read()
             blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
-            await blob_client.upload_blob(file_data)
+            await blob_client.upload_blob(file_data, overwrite=True)  # Overwrite blobs
             print(f"Uploaded {file_name} to Azure Blob Storage!")
 
 
@@ -65,7 +64,7 @@ async def handle_media(update: Update, context):
             file = await update.message.video.get_file()
             file_extension = "mp4"
         else:
-            await update.message.reply_text("Please send a photo or video!")
+            # Should never reach here due to filters
             return
 
         file_url = file.file_path
@@ -79,6 +78,12 @@ async def handle_media(update: Update, context):
         await update.message.reply_text("Nessya💍Eden")
 
     user_last_message_time[sender_id] = current_time
+
+
+# Ignore unwanted messages
+async def ignore_unwanted(update: Update, context):
+    # Silently ignore unwanted messages
+    print(f"Ignored message from {update.message.from_user.id}: {update.message.text or 'Non-text content'}")
 
 
 # Webhook endpoint
@@ -111,6 +116,7 @@ async def set_webhook():
 def add_handlers():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
+    application.add_handler(MessageHandler(filters.ALL, ignore_unwanted))  # Catch all other messages
 
 
 # Initialize the bot and set the webhook
@@ -120,8 +126,6 @@ async def initialize_bot():
 
     try:
         await set_webhook()
-    except RetryAfter as e:
-        print(f"Webhook rate limit exceeded. Retry after {e.retry_after} seconds.")
     except Exception as e:
         print(f"Unexpected error while setting webhook: {str(e)}")
 
@@ -132,5 +136,3 @@ async def initialize_bot():
 @app.on_event("startup")
 async def on_startup():
     await initialize_bot()
-
-
