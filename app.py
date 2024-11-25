@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from azure.storage.blob.aio import BlobServiceClient
 from dotenv import load_dotenv
+from telegram.error import RetryAfter
 
 # Load environment variables
 load_dotenv()
@@ -29,6 +30,7 @@ app = FastAPI()
 user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
+
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
     async with aiohttp.ClientSession() as session:
@@ -38,10 +40,12 @@ async def upload_to_azure(file_url, file_name):
             await blob_client.upload_blob(file_data)
             print(f"Uploaded {file_name} to Azure Blob Storage!")
 
+
 # Start command to welcome the user
 async def start(update: Update, context):
     await update.message.reply_text("איזה כיף שהתחברת!🥰")
     await update.message.reply_text("ניתן לשלוח תמונות וסרטונים לשיתוף בגלריה")
+
 
 # Handle media (images, videos, or other files)
 async def handle_media(update: Update, context):
@@ -76,6 +80,7 @@ async def handle_media(update: Update, context):
 
     user_last_message_time[sender_id] = current_time
 
+
 # Webhook endpoint
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -88,25 +93,44 @@ async def webhook(request: Request):
         print(f"Error processing update: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+
 # Set the webhook URL
 async def set_webhook():
-    webhook_url = f"https://{os.getenv('MY_WEBSITE_HOSTNAME')}/webhook"  # Replace with your actual webhook URL
+    current_webhook = await application.bot.get_webhook_info()
+    webhook_url = f"https://{os.getenv('WEBSITE_HOSTNAME')}/webhook"
+
+    if current_webhook.url == webhook_url:
+        print(f"Webhook already set to: {webhook_url}")
+        return
+
     await application.bot.set_webhook(webhook_url)
     print(f"Webhook successfully set to: {webhook_url}")
+
 
 # Add command and message handlers
 def add_handlers():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
+
 # Initialize the bot and set the webhook
 async def initialize_bot():
     add_handlers()
     await application.initialize()
-    await set_webhook()
-    print("Bot is ready!")
 
-# Initialize the bot when the server starts
+    try:
+        await set_webhook()
+    except RetryAfter as e:
+        print(f"Webhook rate limit exceeded. Retry after {e.retry_after} seconds.")
+    except Exception as e:
+        print(f"Unexpected error while setting webhook: {str(e)}")
+
+    print("Bot initialized.")
+
+
+# FastAPI event: On application startup
 @app.on_event("startup")
 async def on_startup():
     await initialize_bot()
+
+
