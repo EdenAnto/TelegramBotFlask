@@ -31,11 +31,7 @@ user_last_message_time = {}
 response_timeout = 5  # Time in seconds to wait before responding
 
 # Persistent asyncio event loop
-event_loop = asyncio.new_event_loop()
-asyncio.set_event_loop(event_loop)
-
-# Flag to indicate if the bot is initialized
-bot_initialized = False
+bot_initialized = False  # Flag to indicate if the bot is initialized
 
 # Function to upload media to Azure Blob Storage
 async def upload_to_azure(file_url, file_name):
@@ -95,8 +91,8 @@ def webhook():
 
         update = Update.de_json(json.loads(json_str), application.bot)
 
-        # Process the update using the persistent event loop
-        event_loop.run_until_complete(application.process_update(update))
+        # Process the update asynchronously
+        asyncio.run(application.process_update(update))
 
         return 'OK', 200
     except Exception as e:
@@ -104,14 +100,12 @@ def webhook():
         return 'Internal Server Error', 500
 
 # Main function
-async def main():
+async def initialize_bot():
     global bot_initialized
 
     # Initialize the application
     print("Initializing Telegram bot...")
     await application.initialize()  # Await the initialization
-    bot_initialized = True  # Mark as initialized
-    print("Telegram bot initialized.")
 
     # Add command and message handlers
     application.add_handler(CommandHandler("start", start))
@@ -120,12 +114,16 @@ async def main():
     # Set the webhook
     print("Setting webhook...")
     webhook_url = f"https://{os.getenv('MY_WEBSITE_HOSTNAME')}/webhook"
-    await application.bot.set_webhook(webhook_url)
-    print(f"Webhook successfully set to: {webhook_url}")
-
-    # Start Flask server
-    print("Starting Flask server...")
-    app.run(host='0.0.0.0', port=8080)
+    result = await application.bot.set_webhook(webhook_url)
+    if result:
+        print(f"Webhook successfully set to: {webhook_url}")
+        bot_initialized = True  # Mark as initialized
+    else:
+        print(f"Failed to set webhook to: {webhook_url}")
+        raise Exception("Webhook setup failed")
 
 if __name__ == '__main__':
-    event_loop.run_until_complete(main())
+    # Run bot initialization and Flask app in the event loop
+    asyncio.run(initialize_bot())
+    print("Starting Flask server...")
+    app.run(host='0.0.0.0', port=8080)
