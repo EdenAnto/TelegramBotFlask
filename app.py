@@ -17,6 +17,7 @@ app = Flask(__name__)
 # Environment variables
 connection_string = os.getenv('AZ_CSTRING')
 bot_api = os.getenv('TELEGRAM_BOT_API')
+hostname = os.getenv('MY_WEBSITE_HOSTNAME')
 
 # Azure Blob Storage setup
 container_name = "media-gallery"
@@ -120,7 +121,8 @@ async def initialize_bot():
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
 
     # Set the webhook only after bot initialization is complete
-    webhook_url = f"https://{os.getenv('MY_WEBSITE_HOSTNAME')}/webhook"
+    webhook_url = f"https://{hostname}/webhook"
+    print(f"Setting webhook to {webhook_url}...")
     result = await application.bot.set_webhook(webhook_url)
 
     if result:
@@ -138,8 +140,16 @@ def start_flask_app():
 
 
 if __name__ == '__main__':
-    # Initialize the bot in the event loop
-    event_loop.run_until_complete(initialize_bot())
+    # Check if hostname and bot API are properly configured
+    if not hostname or not bot_api:
+        print("Error: Missing MY_WEBSITE_HOSTNAME or TELEGRAM_BOT_API environment variables.")
+        exit(1)
 
-    # Start the Flask server after initialization
-    start_flask_app()
+    # Initialize the bot in the event loop
+    try:
+        event_loop.run_until_complete(initialize_bot())
+        # Start the Flask server after initialization
+        start_flask_app()
+    except Exception as e:
+        print(f"Error during initialization: {e}")
+        exit(1)
